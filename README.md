@@ -1,26 +1,37 @@
-# Authorized Recovery Agent
+# Authorized Recovery Controller
 
-Visible, pairing-code-protected agent for a Windows PC the operator is authorized to administer.
+A controlled Windows recovery and administration tool for systems that the operator owns or has explicit authorization to administer.
 
-## Build
+> **Important:** Use this software only on systems where you have permission to perform administration or recovery operations.
 
-Open PowerShell in this folder and run:
+## Features
 
-dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o dist
+- Pairing-code authentication.
+- Explicit agent/controller connection.
+- Windows system status checks.
+- Controlled restart operation.
+- Controlled shutdown operation.
+- Local operational logging.
+- Recovery-oriented workflow.
+- .NET 8 / Windows x64 support.
 
-The executable will be:
+## Architecture
 
-dist\\RecoveryAgentBuild.exe
-
-## Local test
-
-1. Run RecoveryAgentBuild.exe.
-2. Copy the six-digit pairing code.
-3. Run the matching RecoveryController.exe.
-4. Enter 127.0.0.1 as the Agent IP/hostname.
-5. Enter the pairing code.
-6. Select Status first.
-
-Restart and Shutdown actually affect the computer. Use only on a PC you are authorized to administer.
-
-Do not expose TCP 47821 directly to the public Internet. Use an administrator-approved private network/VPN for remote access.
+```text
+┌─────────────────────────┐
+│   Recovery Controller   │
+│                         │
+│  Operator Interface     │
+│  Pairing Authentication │
+└────────────┬────────────┘
+             │
+             │ Authorized connection
+             │
+┌────────────▼────────────┐
+│    Recovery Agent       │
+│                         │
+│  Pairing Verification   │
+│  Status                 │
+│  Restart                │
+│  Shutdown               │
+└─────────────────────────┘
