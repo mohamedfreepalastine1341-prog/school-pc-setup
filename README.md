@@ -1,19 +1,26 @@
-# School PC Setup
+# Authorized Recovery Agent
 
-Authorized Windows remote-access setup.
+Visible, pairing-code-protected agent for a Windows PC the operator is authorized to administer.
 
 ## Build
-The GitHub Actions workflow builds a single `SchoolPC_Setup.exe` for Windows x64 whenever a tag beginning with `v` is pushed.
 
-## What it configures
-- Windows Remote Desktop (if Windows edition can host RDP)
-- Network Level Authentication
-- Windows Remote Desktop firewall rules
-- Wake-on-Magic-Packet where Windows supports it
-- Connection information on the Public Desktop
+Open PowerShell in this folder and run:
 
-## Limitations
-- Windows Home cannot host incoming Microsoft Remote Desktop.
-- BIOS/UEFI Wake-on-LAN settings may need manual configuration.
-- RDP should not be exposed directly to the public Internet.
-- Use only on systems and networks you are authorized to administer.
+dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o dist
+
+The executable will be:
+
+dist\\RecoveryAgentBuild.exe
+
+## Local test
+
+1. Run RecoveryAgentBuild.exe.
+2. Copy the six-digit pairing code.
+3. Run the matching RecoveryController.exe.
+4. Enter 127.0.0.1 as the Agent IP/hostname.
+5. Enter the pairing code.
+6. Select Status first.
+
+Restart and Shutdown actually affect the computer. Use only on a PC you are authorized to administer.
+
+Do not expose TCP 47821 directly to the public Internet. Use an administrator-approved private network/VPN for remote access.

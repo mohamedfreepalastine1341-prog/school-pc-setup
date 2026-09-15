@@ -1,209 +1,124 @@
 using System;
-using System.Diagnostics;
-using System.Security.Principal;
-using Microsoft.Win32;
+using System.Net;
+using System.Net.Sockets;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Threading.Tasks;
 
 internal static class Program
 {
-    static int Main()
-    {
-        Console.Title = "School PC Authorized Remote Setup";
+    const int Port = 47821;
+    static string PairingCode = "";
 
-        Console.WriteLine("==============================================");
-        Console.WriteLine("   AUTHORIZED SCHOOL PC REMOTE SETUP");
-        Console.WriteLine("==============================================");
+    static async Task Main()
+    {
+        Console.Title = "Authorized Recovery Agent";
+        PairingCode = RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
+
+        Console.WriteLine("======================================");
+        Console.WriteLine("     AUTHORIZED RECOVERY AGENT");
+        Console.WriteLine("======================================");
+        Console.WriteLine();
+        Console.WriteLine($"Pairing code: {PairingCode}");
+        Console.WriteLine($"Listening port: {Port}");
+        Console.WriteLine();
+        Console.WriteLine("Keep this window open while using");
+        Console.WriteLine("the authorized recovery controller.");
         Console.WriteLine();
 
-        if (!IsAdministrator())
-        {
-            Console.WriteLine("ERROR: Please right-click the EXE and choose");
-            Console.WriteLine("\"Run as administrator\".");
-            Pause();
-            return 1;
-        }
-
-        string edition = GetWindowsEdition();
-        Console.WriteLine($"Windows edition: {edition}");
-
-        if (edition.Contains("Home", StringComparison.OrdinalIgnoreCase))
-        {
-            Console.WriteLine();
-            Console.WriteLine("Windows Home cannot host incoming Microsoft Remote Desktop.");
-            Console.WriteLine("No RDP changes were made.");
-            Pause();
-            return 1;
-        }
-
-        try
-        {
-            Console.WriteLine();
-            Console.WriteLine("[1/4] Enabling Remote Desktop...");
-            RunPowerShell(@"Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server' -Name fDenyTSConnections -Type DWord -Value 0");
-
-            Console.WriteLine("[2/4] Requiring Network Level Authentication...");
-            RunPowerShell(@"Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name UserAuthentication -Type DWord -Value 1");
-
-            Console.WriteLine("[3/4] Enabling Remote Desktop firewall rules...");
-            RunPowerShell(@"Enable-NetFirewallRule -DisplayGroup 'Remote Desktop'");
-
-            Console.WriteLine("[4/4] Enabling Wake-on-Magic-Packet where supported...");
-            RunPowerShell(@"$a=Get-NetAdapter -Physical -ErrorAction SilentlyContinue; foreach($n in $a){try{Set-NetAdapterPowerManagement -Name $n.Name -WakeOnMagicPacket Enabled -ErrorAction Stop; Write-Output ('Enabled: '+$n.Name)}catch{Write-Output ('Skipped: '+$n.Name)}}");
-
-            string desktop = Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory);
-            string infoFile = System.IO.Path.Combine(desktop, "School PC Remote Info.txt");
-
-            string info = GetConnectionInfo(edition);
-            System.IO.File.WriteAllText(infoFile, info);
-
-            Console.WriteLine();
-            Console.WriteLine("==============================================");
-            Console.WriteLine("SETUP COMPLETE");
-            Console.WriteLine("==============================================");
-            Console.WriteLine($"Connection information saved to:");
-            Console.WriteLine(infoFile);
-            Console.WriteLine();
-            Console.WriteLine("Important:");
-            Console.WriteLine("- RDP requires the PC to be powered on.");
-            Console.WriteLine("- BIOS/UEFI may still need Wake-on-LAN enabled.");
-            Console.WriteLine("- Do not expose RDP port 3389 directly to the Internet.");
-            Console.WriteLine("- Use an administrator-approved VPN/private network for remote access.");
-            Pause();
-            return 0;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine();
-            Console.WriteLine("SETUP FAILED:");
-            Console.WriteLine(ex.Message);
-            Pause();
-            return 1;
-        }
-    }
-
-    static bool IsAdministrator()
-    {
-        using WindowsIdentity identity = WindowsIdentity.GetCurrent();
-        WindowsPrincipal principal = new WindowsPrincipal(identity);
-        return principal.IsInRole(WindowsBuiltInRole.Administrator);
-    }
-
-    static string GetWindowsEdition()
-    {
-        using RegistryKey? key = Registry.LocalMachine.OpenSubKey(
-            @"SOFTWARE\Microsoft\Windows NT\CurrentVersion");
-
-        return key?.GetValue("ProductName")?.ToString() ?? "Unknown";
-    }
-
-    static void RunPowerShell(string command)
-    {
-        ProcessStartInfo psi = new ProcessStartInfo
-        {
-            FileName = "powershell.exe",
-            Arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command " +
-                        "\"" + command.Replace("\"", "\\\"") + "\"",
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true
-        };
-
-        using Process process = Process.Start(psi)
-            ?? throw new Exception("Could not start PowerShell.");
-
-        string output = process.StandardOutput.ReadToEnd();
-        string error = process.StandardError.ReadToEnd();
-
-        process.WaitForExit();
-
-        if (!string.IsNullOrWhiteSpace(output))
-            Console.WriteLine(output.Trim());
-
-        if (process.ExitCode != 0)
-            throw new Exception(string.IsNullOrWhiteSpace(error)
-                ? $"PowerShell command failed with exit code {process.ExitCode}."
-                : error.Trim());
-    }
-
-    static string GetConnectionInfo(string edition)
-    {
-        string computer = Environment.MachineName;
-        string ips = RunPowerShellForText(
-            "(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | " +
-            "Where-Object {$_.IPAddress -notmatch '^127\\.' -and $_.IPAddress -notmatch '^169\\.254\\.'} | " +
-            "Select-Object -ExpandProperty IPAddress) -join [Environment]::NewLine");
-
-        string macs = RunPowerShellForText(
-            "(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | " +
-            "Select-Object Name,MacAddress,Status | Out-String)");
-
-        return
-$@"AUTHORIZED REMOTE ACCESS
-========================
-
-Computer name:
-{computer}
-
-Windows edition:
-{edition}
-
-Current IPv4 addresses:
-{ips}
-
-Network adapters / MAC addresses:
-{macs}
-
-Remote Desktop:
-Enabled
-
-Network Level Authentication:
-Enabled
-
-Wake-on-Magic-Packet:
-Configured where Windows supports it
-
-IMPORTANT:
-- The PC must be powered on for RDP.
-- BIOS/UEFI may need Wake-on-LAN enabled manually.
-- Remote Wake-on-LAN across the Internet normally needs an approved VPN/router/device on the same network.
-- Do not expose TCP 3389 directly to the public Internet.
-- Use this only on a PC and network you are authorized to administer.
-";
-    }
-
-    static string RunPowerShellForText(string command)
-    {
-        ProcessStartInfo psi = new ProcessStartInfo
-        {
-            FileName = "powershell.exe",
-            Arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command " +
-                        "\"" + command.Replace("\"", "\\\"") + "\"",
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true
-        };
-
-        using Process process = Process.Start(psi)
-            ?? throw new Exception("Could not start PowerShell.");
-
-        string output = process.StandardOutput.ReadToEnd();
-        string error = process.StandardError.ReadToEnd();
-
-        process.WaitForExit();
-
-        if (process.ExitCode != 0)
-            throw new Exception(string.IsNullOrWhiteSpace(error)
-                ? $"PowerShell command failed with exit code {process.ExitCode}."
-                : error.Trim());
-
-        return output.Trim();
-    }
-
-    static void Pause()
-    {
+        TcpListener listener = new TcpListener(IPAddress.Any, Port);
+        listener.Start();
+        Console.WriteLine("Agent is running.");
         Console.WriteLine();
-        Console.WriteLine("Press Enter to close.");
-        Console.ReadLine();
+
+        while (true)
+        {
+            TcpClient client = await listener.AcceptTcpClientAsync();
+            _ = Task.Run(async () =>
+            {
+                try { await HandleClient(client); }
+                catch (Exception ex) { Console.WriteLine($"Client error: {ex.Message}"); }
+                finally { client.Close(); }
+            });
+        }
+    }
+
+    static async Task HandleClient(TcpClient client)
+    {
+        using NetworkStream stream = client.GetStream();
+        byte[] buffer = new byte[8192];
+        int bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
+        if (bytesRead <= 0) return;
+
+        string requestText = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+        JsonDocument request;
+        try { request = JsonDocument.Parse(requestText); }
+        catch
+        {
+            await SendResponse(stream, new { success = false, message = "Invalid JSON." });
+            return;
+        }
+
+        JsonElement root = request.RootElement;
+        string code = root.TryGetProperty("code", out JsonElement codeElement)
+            ? codeElement.GetString() ?? "" : "";
+
+        if (code != PairingCode)
+        {
+            await SendResponse(stream, new { success = false, message = "Invalid pairing code." });
+            return;
+        }
+
+        string action = root.TryGetProperty("action", out JsonElement actionElement)
+            ? actionElement.GetString() ?? "" : "";
+
+        switch (action.ToLowerInvariant())
+        {
+            case "status":
+                await SendResponse(stream, new
+                {
+                    success = true,
+                    computer = Environment.MachineName,
+                    operatingSystem = Environment.OSVersion.ToString(),
+                    time = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
+                });
+                break;
+
+            case "restart":
+                await SendResponse(stream, new { success = true, message = "Restart requested." });
+                await Task.Delay(1000);
+                ProcessStart("shutdown.exe", "/r /t 5");
+                break;
+
+            case "shutdown":
+                await SendResponse(stream, new { success = true, message = "Shutdown requested." });
+                await Task.Delay(1000);
+                ProcessStart("shutdown.exe", "/s /t 5");
+                break;
+
+            default:
+                await SendResponse(stream, new { success = false, message = "Unknown action." });
+                break;
+        }
+    }
+
+    static void ProcessStart(string fileName, string arguments)
+    {
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = fileName,
+            Arguments = arguments,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        });
+    }
+
+    static async Task SendResponse(NetworkStream stream, object response)
+    {
+        string json = JsonSerializer.Serialize(response);
+        byte[] data = Encoding.UTF8.GetBytes(json);
+        await stream.WriteAsync(data, 0, data.Length);
+        await stream.FlushAsync();
     }
 }
